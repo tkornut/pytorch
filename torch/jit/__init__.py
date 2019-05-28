@@ -1676,8 +1676,16 @@ def _convert_to_script_module(mod, methods=None):
     if hasattr(mod, '__torchscript_export__'):
         exported = tuple(mod.__torchscript_export__)
     methods = methods + exported
-    print("Making strong", methods)
-    return _make_strong(mod, _methods=methods)
+
+    if mod in _jit_internal.weak_modules:
+        return _jit_internal.weak_modules[mod]
+
+    def make_stub(method):
+        func = get_function_from_type(type(mod), method)
+        return script_method(func, createResolutionCallbackFromClosure(func))
+
+    stubs = list(map(make_stub, methods))
+    return WeakScriptModuleProxy(mod, stubs)
 
 
 def _make_strong(mod, _methods=None):
@@ -1689,7 +1697,7 @@ def _make_strong(mod, _methods=None):
         return _jit_internal.weak_modules[mod]
 
     cls = type(mod)
-    weak_type = WeakScriptModuleProxy
+    stubs = None
     if _methods is None:
         # Explicitly annotated weak script
         stubs = _jit_internal.weak_types.get(cls)["method_stubs"]
@@ -1698,22 +1706,14 @@ def _make_strong(mod, _methods=None):
             # used again
             stubs = _get_weak_stubs(cls)
             _jit_internal.weak_types[cls]["method_stubs"] = stubs
-        weak_type = type(cls.__name__, (WeakScriptModuleProxy, cls), {})
-    else:
-        stubs = []
-        for method in _methods:
-            func = get_function_from_type(cls, method)
-            stub = script_method(func, createResolutionCallbackFromClosure(func))
-            stubs.append(stub)
 
-    print("\n",stubs)
+    weak_type = type(cls.__name__, (WeakScriptModuleProxy, cls), {})
     # Construct a new type that inherits from both WeakScriptModuleProxy and
     # original_type so that isinstance checks work correctly
     # proxy = WeakScriptModuleProxy(mod, stubs)
     proxy = weak_type(mod, stubs)
 
     _jit_internal.weak_modules[mod] = proxy
-
     return proxy
 
 

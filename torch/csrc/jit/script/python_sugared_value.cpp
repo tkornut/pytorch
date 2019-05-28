@@ -300,7 +300,6 @@ std::shared_ptr<SugaredValue> ModuleValue::attr(
 
     // If recursive script mode is on, create a ScriptModule and register it as
     // as submodule or register a python method as a script::Method
-    std::cout << "RECURSIVE MODE: " << std::boolalpha << getRecursiveScriptMode() << "\n";
     if (getRecursiveScriptMode()) {
       if (py::isinstance(attr, py::module::import("torch.nn").attr("Module"))) {
         // If the module is a submodule of the py_module, convert it to a
