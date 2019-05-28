@@ -936,6 +936,7 @@ def createResolutionCallbackFromClosure(fn):
 
 
 def _make_strong_submodule(field, module, parent):
+    print("Making strong: ", field, module, parent)
     if field not in parent._modules:
         # It's not a submodule, don't do anything
         return None
@@ -1543,12 +1544,14 @@ if _enabled:
                 raise RuntimeError("'{}' has not been initialized, did you forget to call 'super()'?"
                                    .format(type(original).__name__))
 
-            print(self.__bases__)
-            for name in dir(original):
-                item = getattr(original, name)
-                if callable(item):
-                    print(name)
-            self.__dict__["_methods"] = set()
+            print(type(self).__bases__)
+
+            # for name in dir(type(self).__bases__[1]):
+            # for name in dir(original):
+            #     item = getattr(original, name)
+            #     if callable(item):
+            #         print(name)
+            # self.__dict__["_methods"] = set()
             # self.__dict__["_methods"] = method_names
 
             # Copy Parameters and Modules
@@ -1586,30 +1589,28 @@ if _enabled:
             self.__dict__["_initialized"] = True
             _create_methods_from_stubs(self, stubs)
 
-        def __getattribute__(self, attr):
-        #     # self_dict = object.__getattr__(self, '__dict__')
-        #     # original_module = self_dict["_original"]()
-            return object.__getattribute__(self, attr)
-        #     # print(original_module)
-        #     return WeakScriptModuleProxy.__getattr__(self, attr)
-
         def __getattr__(self, attr):
             # Try to get the attribute directly, if that fails, fall back to the
             # weak module itself
             print("Getting attr:", attr)
             try:
+                a = ScriptModule.__getattr__(self, attr)
+                print("got ", a)
+                return a
                 return ScriptModule.__getattr__(self, attr)
-            except AttributeError:
+            except AttributeError as e:
                 # unwrap the original
+                print("??? ", e)
                 self_dict = object.__getattribute__(self, '__dict__')
+                # TODO: why is the original not dead when you do
+                #   torch.jit.script(MyModule())
                 original_module = self.__dict__["_original"]()
                 if original_module and self.__dict__["_initialized"]:
                     # get attr from original if it is still alive
+                    print("Getting from orig")
                     return getattr(original_module, attr)
                 else:
-                    # Only fall back to original once __init__() is done
-                    raise AttributeError("Weak module has no attribute '{}'"
-                                         .format(attr))
+                    raise e
 
         def __setattr__(self, attr, value):
             # Once constructed, no new properties can be set
@@ -1688,13 +1689,16 @@ def _make_strong(mod, _methods=None):
         return _jit_internal.weak_modules[mod]
 
     cls = type(mod)
+    weak_type = WeakScriptModuleProxy
     if _methods is None:
+        # Explicitly annotated weak script
         stubs = _jit_internal.weak_types.get(cls)["method_stubs"]
         if stubs is None:
             # Generate stubs and and store on weak_types in case this type is
             # used again
             stubs = _get_weak_stubs(cls)
             _jit_internal.weak_types[cls]["method_stubs"] = stubs
+        weak_type = type(cls.__name__, (WeakScriptModuleProxy, cls), {})
     else:
         stubs = []
         for method in _methods:
@@ -1705,7 +1709,6 @@ def _make_strong(mod, _methods=None):
     print("\n",stubs)
     # Construct a new type that inherits from both WeakScriptModuleProxy and
     # original_type so that isinstance checks work correctly
-    weak_type = type(cls.__name__, (WeakScriptModuleProxy, cls), {})
     # proxy = WeakScriptModuleProxy(mod, stubs)
     proxy = weak_type(mod, stubs)
 

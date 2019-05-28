@@ -117,8 +117,8 @@ std::shared_ptr<SugaredValue> PythonValue::call(
       m.graph()->createPythonOp(THPObjectPtr(func.release().ptr()), cconv, {}));
 
   // Mark if function is ignored on export
-  if (py::cast<bool>(
-          py::module::import("torch._jit_internal").attr("should_drop_on_export")(self))) {
+  if (py::cast<bool>(py::module::import("torch._jit_internal")
+                         .attr("should_drop_on_export")(self))) {
     auto python_op = static_cast<PythonOp*>(new_node);
     python_op->ignore_on_export = true;
   }
@@ -300,6 +300,7 @@ std::shared_ptr<SugaredValue> ModuleValue::attr(
 
     // If recursive script mode is on, create a ScriptModule and register it as
     // as submodule or register a python method as a script::Method
+    std::cout << "RECURSIVE MODE: " << std::boolalpha << getRecursiveScriptMode() << "\n";
     if (getRecursiveScriptMode()) {
       if (py::isinstance(attr, py::module::import("torch.nn").attr("Module"))) {
         // If the module is a submodule of the py_module, convert it to a
