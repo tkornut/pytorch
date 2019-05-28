@@ -189,7 +189,7 @@ def export(fn):
     saving. This decorator explicitly marks that a method should be included
     even if it is not called from Python.
     """
-    class_dict = get_class_attribute_dict(fn, frames_up=3)
+    class_dict = get_class_attribute_dict(fn, frames_up=2)
     if '__torchscript_export__' not in class_dict:
         class_dict['__torchscript_export__'] = set()
     class_dict['__torchscript_export__'].add(fn.__name__)
@@ -217,6 +217,8 @@ def ignore(drop_on_export=False):
         fn._torchscript_ignore = {"drop_on_export": False}
         return fn
     elif isinstance(drop_on_export, bool):
+        # used with an arg
+        #   @torch.jit.ignore(drop_on_export=True)
         def decorator(fn):
             fn._torchscript_ignore = {"drop_on_export": drop_on_export}
             return fn

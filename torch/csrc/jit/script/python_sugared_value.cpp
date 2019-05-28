@@ -273,9 +273,6 @@ std::shared_ptr<SugaredValue> ModuleValue::attr(
     return SimpleValue(self_).attr(loc, m, field);
   }
 
-  // This can also be a call to a non-script module, or a plain
-  // python method. If so return this as a python value.
-
   py::object overloads =
       py_module_.attr("_overloads").attr("get")(field, py::none());
   if (!overloads.is_none()) {
@@ -301,15 +298,22 @@ std::shared_ptr<SugaredValue> ModuleValue::attr(
       return std::make_shared<ConstantParameterList>(list);
     }
 
-    if (py::isinstance(attr, py::module::import("torch.nn").attr("Module"))) {
-      if (getRecursiveScriptMode()) {
+    // If recursive script mode is on, create a ScriptModule and register it as
+    // as submodule or register a python method as a script::Method
+    if (getRecursiveScriptMode()) {
+      if (py::isinstance(attr, py::module::import("torch.nn").attr("Module"))) {
         // If the module is a submodule of the py_module, convert it to a
         // ScriptModule and add it as a submodule to the script::Module. This
         // enables lazy strong-ification of modules.
         auto result =
             py::module::import("torch.jit")
                 .attr("_make_strong_submodule")(field, attr, py_module_);
-        if (auto submodule = as_module(result)) {
+        if (!result.is_none()) {
+          auto submodule = as_module(result);
+          AT_CHECK(
+              submodule,
+              "Result of torch.jit._make_strong_submodule "
+              "was not a ScriptModule");
           // The module was a submodule of the nn.Module, so register it here
           // and return the submodule.
           module_->register_module(field, submodule);
@@ -317,24 +321,21 @@ std::shared_ptr<SugaredValue> ModuleValue::attr(
           return std::make_shared<ModuleValue>(
               m.graph()->insertGetAttr(self_, field), v, attr);
         }
-      }
-      return toSugaredValue(attr, m, loc, true);
-    } else if (py::isinstance<py::function>(attr)) {
-      if (getRecursiveScriptMode()) {
-        // Compile the function
+      } else if (py::isinstance<py::function>(attr)) {
         auto stub =
             py::module::import("torch.jit").attr("_get_method_stub")(attr);
         if (!stub.is_none()) {
-          auto creator =
-              py::module::import("torch.jit").attr("_create_methods_from_stubs");
-
           // Add the method to the module
-          creator(py_module_, stub);
+          py::module::import("torch.jit")
+              .attr("_create_methods_from_stubs")(py_module_, stub);
           return SimpleValue(self_).attr(loc, m, field);
         }
       }
-      return toSugaredValue(attr, m, loc, true);
-    } else if (py_module_.attr("_constants_set").contains(field.c_str())) {
+    }
+
+    if (py_module_.attr("_constants_set").contains(field.c_str()) ||
+        py::isinstance(attr, py::module::import("torch.nn").attr("Module")) ||
+        py::isinstance<py::function>(attr)) {
       return toSugaredValue(attr, m, loc, true);
     } else {
       std::string hint = "did you forget to add it __constants__?";

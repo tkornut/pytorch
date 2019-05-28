@@ -1543,6 +1543,14 @@ if _enabled:
                 raise RuntimeError("'{}' has not been initialized, did you forget to call 'super()'?"
                                    .format(type(original).__name__))
 
+            print(self.__bases__)
+            for name in dir(original):
+                item = getattr(original, name)
+                if callable(item):
+                    print(name)
+            self.__dict__["_methods"] = set()
+            # self.__dict__["_methods"] = method_names
+
             # Copy Parameters and Modules
             for name in dir(original):
                 item = getattr(original, name)
@@ -1578,13 +1586,22 @@ if _enabled:
             self.__dict__["_initialized"] = True
             _create_methods_from_stubs(self, stubs)
 
+        def __getattribute__(self, attr):
+        #     # self_dict = object.__getattr__(self, '__dict__')
+        #     # original_module = self_dict["_original"]()
+            return object.__getattribute__(self, attr)
+        #     # print(original_module)
+        #     return WeakScriptModuleProxy.__getattr__(self, attr)
+
         def __getattr__(self, attr):
             # Try to get the attribute directly, if that fails, fall back to the
             # weak module itself
+            print("Getting attr:", attr)
             try:
                 return ScriptModule.__getattr__(self, attr)
             except AttributeError:
                 # unwrap the original
+                self_dict = object.__getattribute__(self, '__dict__')
                 original_module = self.__dict__["_original"]()
                 if original_module and self.__dict__["_initialized"]:
                     # get attr from original if it is still alive
@@ -1654,6 +1671,11 @@ def _convert_to_script_module(mod, methods=None):
     """
     if methods is None:
         methods = ('forward',)
+    exported = ()
+    if hasattr(mod, '__torchscript_export__'):
+        exported = tuple(mod.__torchscript_export__)
+    methods = methods + exported
+    print("Making strong", methods)
     return _make_strong(mod, _methods=methods)
 
 
@@ -1680,9 +1702,11 @@ def _make_strong(mod, _methods=None):
             stub = script_method(func, createResolutionCallbackFromClosure(func))
             stubs.append(stub)
 
+    print("\n",stubs)
     # Construct a new type that inherits from both WeakScriptModuleProxy and
     # original_type so that isinstance checks work correctly
     weak_type = type(cls.__name__, (WeakScriptModuleProxy, cls), {})
+    # proxy = WeakScriptModuleProxy(mod, stubs)
     proxy = weak_type(mod, stubs)
 
     _jit_internal.weak_modules[mod] = proxy

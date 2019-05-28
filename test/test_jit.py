@@ -12680,11 +12680,11 @@ a")
                 super(Other, self).__init__()
                 self.x = x
                 self.param = torch.nn.Parameter(torch.ones(2, 2))
-                self.some_unscriptable_method
 
             def some_unscriptable_method(self):
-                import pdb as _  # noqa: F401
-                return 100
+                a = 2
+                a = [2]
+                return a
 
             def forward(self, t):
                 return t + self.x + self.param
@@ -12700,9 +12700,43 @@ a")
             def forward(self, t):
                 return self.other(t) * 2
 
-        m = M()
         with torch.jit._enable_recursive_script():
-            sm = torch.jit._make_strong(m, _methods=['forward'])
+            sm = torch.jit.script(M())
+
+        self.assertExportImportModule(sm, (torch.ones(2, 2),))
+
+    def test_module_function_export(self):
+        class Other(torch.nn.Module):
+            __constants__ = ['x']
+
+            def __init__(self, x):
+                super(Other, self).__init__()
+                self.x = x
+                self.param = torch.nn.Parameter(torch.ones(2, 2))
+
+            @torch.jit.export
+            def some_entry_point(self, y):
+                return y + 20
+
+            def forward(self, t):
+                return t + self.x + self.param
+
+
+        class M(torch.nn.Module):
+            __constants__ = ['x']
+
+            def __init__(self):
+                super(M, self).__init__()
+                self.other = Other(200)
+
+            def forward(self, t):
+                return self.other(t) * 2
+
+        with torch.jit._enable_recursive_script():
+            sm = torch.jit.script(M())
+            breakpoint()
+            print(sm.other.graph)
+            print(sm.other.some_entry_point.graph)
 
         self.assertExportImportModule(sm, (torch.ones(2, 2),))
 
